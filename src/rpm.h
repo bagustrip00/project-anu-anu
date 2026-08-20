@@ -3,37 +3,36 @@
 // rpm.h
 // RPM input abstraction.
 //
-// V1 only has a software RPM simulator. Later, readRPM() can be
-// re-implemented on top of a real pickup sensor / trigger circuit
-// WITHOUT changing the ignition calculation engine, because the
-// rest of the firmware only ever calls readRPM().
+// V2 REAL HARDWARE:
+//   - Primary: Real pulser input on D4 (interrupt-driven)
+//   - Fallback: Software RPM simulator (for testing)
+//
+// readRPM() is called every loop() and returns the current RPM
+// from either source, without the ignition engine needing to know
+// the difference.
 // =============================================================
 
 #include <Arduino.h>
 
 enum class RpmSource : uint8_t {
     SIMULATOR,
-    PICKUP // reserved for future hardware RPM input
+    PICKUP  // Real pulser on D4
 };
 
 // Must be called once from setup().
 void rpmInit();
 
 // Non-blocking. Should be called every loop() iteration.
-// Currently a no-op placeholder for future pickup-sensor interrupt
-// bookkeeping, but kept here so main.cpp doesn't need to change
-// when real hardware is introduced.
+// Handles simulator sweep timing and checks for pulser timeout.
 void rpmUpdate();
 
 // Returns the current RPM value used by the ignition engine.
-// NOTE: The actual pickup sensor requires an appropriate signal
-// conditioning/protection circuit before connection to the ESP8266.
-// This function does not perform any GPIO reads in V1.
+// Sources: Real pulser (D4 interrupt) or simulator.
 uint16_t readRPM();
 
 RpmSource getRpmSource();
 
-// --- Simulator control ---
+// --- Simulator control (for testing/bench) ---
 void simulatorSetEnabled(bool enabled);
 bool simulatorIsEnabled();
 
@@ -46,3 +45,7 @@ void simulatorStepRPM(int16_t deltaSteps); // deltaSteps in units of RPM_STEP
 void sweepStart(uint16_t startRpm, uint16_t endRpm, uint16_t step, uint16_t intervalMs);
 void sweepStop();
 bool sweepIsRunning();
+
+// --- Pulser statistics (for debugging) ---
+unsigned long getPulserLastEdgeUs();
+unsigned long getPulserPeriodUs();

@@ -3,12 +3,13 @@
 #include <ArduinoJson.h>
 
 static const char *CONFIG_PATH = "/config.json";
+static const char *CONFIG_BACKUP_PATH = "/config.bak";
 
 // Sized generously for MAP_COUNT * MAP_POINTS ignition points plus
-// scalar fields. 37 points * 3 maps * ~2 fields each is the bulk of
-// the document. Measured comfortably under 12KB for MAP_POINTS=37,
-// MAP_COUNT=3; ESP8266 has enough heap for a short-lived document
-// like this (it is not kept around after save/load returns).
+// scalar fields + TSS configs. 37 points * 3 maps * ~2 fields each
+// plus TSS (3 maps * ~2 fields) is the bulk.
+// Measured comfortably under 14KB for MAP_POINTS=37, MAP_COUNT=3;
+// ESP8266 has enough heap for a short-lived document like this.
 static const size_t JSON_CAPACITY = 16384;
 
 static void mapToJson(const CDIMap &map, JsonObject obj) {
@@ -18,6 +19,11 @@ static void mapToJson(const CDIMap &map, JsonObject obj) {
         p["rpm"] = map.curve[i].rpm;
         p["timing"] = map.curve[i].timing;
     }
+
+    // TSS config (V2 addition)
+    JsonObject tss = obj.createNestedObject("tss");
+    tss["mode"] = (uint8_t)map.tss.mode;
+    tss["retardDeg"] = map.tss.retardDeg;
 
     JsonObject rumble = obj.createNestedObject("rumble");
     rumble["enabled"] = map.rumble.enabled;
@@ -58,6 +64,17 @@ static bool jsonToMap(JsonObjectConst obj, CDIMap &map) {
     }
     if (!validateCurve(map.curve, MAP_POINTS)) return false;
 
+    // TSS config (V2 addition, default to safe values if missing)
+    JsonObjectConst tss = obj["tss"];
+    if (!tss.isNull()) {
+        map.tss.mode = (TSSMode)(tss["mode"] | (uint8_t)TSSMode::AUTO);
+        map.tss.retardDeg = tss["retardDeg"] | 5.0f;
+    } else {
+        // Backward compatibility: if loading old V1 config, default to safe TSS
+        map.tss.mode = TSSMode::AUTO;
+        map.tss.retardDeg = 5.0f;
+    }
+
     JsonObjectConst rumble = obj["rumble"];
     map.rumble.enabled   = rumble["enabled"] | false;
     map.rumble.targetRPM = rumble["targetRPM"] | 1500;
@@ -78,8 +95,6 @@ static bool jsonToMap(JsonObjectConst obj, CDIMap &map) {
     map.idleTiming  = obj["idleTiming"] | 10.0f;
 
     JsonObjectConst limiter = obj["limiter"];
-    // minRPM/maxRPM default to the full ignition map range so that
-    // configs saved before this field existed still load cleanly.
     map.limiter.minRPM       = limiter["minRPM"] | RPM_MIN;
     map.limiter.maxRPM       = limiter["maxRPM"] | RPM_MAX;
     map.limiter.softLimitRPM = limiter["softLimitRPM"] | 9500;
@@ -106,13 +121,33 @@ bool saveConfig() {
         mapToJson(config.maps[m], mapObj);
     }
 
-    File f = LittleFS.open(CONFIG_PATH, "w");
+    // Write to temporary file first
+    File f = LittleFS.open("/config.tmp", "w");
     if (!f) return false;
 
     size_t written = serializeJson(doc, f);
     f.close();
 
-    return written > 0;
+    if (written == 0) {
+        LittleFS.remove("/config.tmp");
+        return false;
+    }
+
+    // Atomic rename: backup old config, move tmp to config
+    if (LittleFS.exists(CONFIG_PATH)) {
+        LittleFS.remove(CONFIG_BACKUP_PATH);  // Remove old backup
+        LittleFS.rename(CONFIG_PATH, CONFIG_BACKUP_PATH);  // Backup current
+    }
+    
+    if (!LittleFS.rename("/config.tmp", CONFIG_PATH)) {
+        // If rename failed, try to restore from backup
+        if (LittleFS.exists(CONFIG_BACKUP_PATH)) {
+            LittleFS.rename(CONFIG_BACKUP_PATH, CONFIG_PATH);
+        }
+        return false;
+    }
+
+    return true;
 }
 
 bool loadConfig() {
@@ -132,16 +167,34 @@ bool loadConfig() {
     f.close();
 
     if (err) {
-        setDefaultConfig();
-        return false;
+        // Try backup
+        if (LittleFS.exists(CONFIG_BACKUP_PATH)) {
+            f = LittleFS.open(CONFIG_BACKUP_PATH, "r");
+            DeserializationError errBak = deserializeJson(doc, f);
+            f.close();
+            if (errBak) {
+                setDefaultConfig();
+                return false;
+            }
+        } else {
+            setDefaultConfig();
+            return false;
+        }
     }
 
     CDIConfig loaded{};
     loaded.version = doc["version"] | 0;
 
+    // Handle version migration: V1 (1) -> V2 (2)
     if (loaded.version != CONFIG_VERSION) {
-        setDefaultConfig();
-        return false;
+        // If loading V1 config, apply TSS defaults before validation
+        if (loaded.version == 1) {
+            loaded.version = CONFIG_VERSION;
+            // TSS defaults will be applied in jsonToMap()
+        } else {
+            setDefaultConfig();
+            return false;
+        }
     }
 
     loaded.activeMap = doc["activeMap"] | 0;

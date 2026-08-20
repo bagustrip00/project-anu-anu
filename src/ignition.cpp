@@ -1,4 +1,5 @@
 #include "ignition.h"
+#include "hardware.h"
 
 // Backfire pulse state (non-blocking, millis()-based).
 static bool backfirePulseActive = false;
@@ -66,6 +67,34 @@ float applyIdleTiming(float timing, uint16_t rpm, const CDIMap &map, bool &idleA
     return timing;
 }
 
+float applyTSSRetard(float timing, uint16_t rpm, const CDIMap &map, bool &tssActive) {
+    // HARDWARE ASSUMPTION: TSS input is on D6, read via hardware module
+    TSSConfig tss = map.tss;
+    bool tssInput = readTSSInput();  // Read actual GPIO
+    
+    // Determine if TSS should be active based on mode
+    bool shouldRetard = false;
+    
+    switch (tss.mode) {
+        case TSSMode::AUTO:
+            shouldRetard = tssInput;
+            break;
+        case TSSMode::ON:
+            shouldRetard = true;
+            break;
+        case TSSMode::OFF:
+            shouldRetard = false;
+            break;
+    }
+    
+    tssActive = shouldRetard;
+    
+    if (shouldRetard) {
+        return timing - tss.retardDeg;
+    }
+    return timing;
+}
+
 float applyRumbleIdle(float timing, uint16_t rpm, const CDIMap &map, bool &rumbleActive) {
     // PROTOTYPE ALGORITHM: this is a simple retard-in-band implementation
     // and must be validated against a real engine before any hardware
@@ -111,13 +140,6 @@ float applyBackfire(float timing, uint16_t rpm, const CDIMap &map, bool &backfir
 }
 
 LimiterState applyRevLimiter(uint16_t rpm, const CDIMap &map) {
-    // map.limiter.minRPM/maxRPM define the valid operating window for
-    // softLimitRPM/hardLimitRPM (enforced at config-validation time in
-    // validateConfig()). They intentionally do not gate this function
-    // directly - V1's limiter only ever reports NORMAL/SOFT_LIMIT/
-    // HARD_LIMIT state based on softLimitRPM/hardLimitRPM, exactly as
-    // before. This keeps behavior unchanged for existing installs and
-    // avoids introducing an untested ignition-cut path.
     if (rpm >= map.limiter.hardLimitRPM) return LimiterState::HARD_LIMIT;
     if (rpm >= map.limiter.softLimitRPM) return LimiterState::SOFT_LIMIT;
     return LimiterState::NORMAL;
@@ -129,14 +151,16 @@ float finalIgnitionTiming(uint16_t rpm, const CDIMap &map, IgnitionResult &resul
 
     t = applyStartingTiming(t, rpm, result.starting);
 
-    // Idle/rumble/backfire modifiers are skipped while cranking - the
+    // Idle/TSS/rumble/backfire modifiers are skipped while cranking - the
     // starting stage already produced the timing that should be used.
     if (!result.starting) {
         t = applyIdleTiming(t, rpm, map, result.idleActive);
+        t = applyTSSRetard(t, rpm, map, result.tssActive);
         t = applyRumbleIdle(t, rpm, map, result.rumbleActive);
         t = applyBackfire(t, rpm, map, result.backfireActive);
     } else {
         result.idleActive = false;
+        result.tssActive = false;
         result.rumbleActive = false;
         result.backfireActive = false;
     }

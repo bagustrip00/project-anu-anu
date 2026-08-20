@@ -5,7 +5,8 @@
 //
 // This module is pure computation: RPM (+ config) in, a final
 // ignition timing value (+ state flags) out. It does NOT touch
-// Wi-Fi, HTTP, JSON or storage, and it does NOT drive any GPIO.
+// Wi-Fi, HTTP, JSON or storage, and it does NOT drive any GPIO
+// directly (uses hardware.h abstraction).
 //
 // Priority / order of operations (documented, do not reorder
 // without updating this comment):
@@ -14,21 +15,22 @@
 //     -> STARTING CHECK        (below starting RPM threshold?)
 //     -> BASE IGNITION CURVE   (interpolated from active map)
 //     -> IDLE MODIFIER         (near idle RPM -> idle timing)
+//     -> TSS MODIFIER          (throttle switch retard)
 //     -> RUMBLE IDLE MODIFIER  (retard while rumble idle active)
 //     -> BACKFIRE MODIFIER     (retard pulse in configured window)
 //     -> REV LIMITER STATE     (does not change timing directly in
-//                                V1, only reports state; timing
+//                                V2, only reports state; timing
 //                                itself is still whatever the above
 //                                stages produced)
 //     -> FINAL IGNITION TIMING
 //
 // Rationale: starting logic takes priority over the curve because
-// cranking RPM is noisy and unreliable. Idle/rumble/backfire are
-// applied after the base curve because they are meant to modify
-// (not replace) a normally-running engine's timing. The limiter is
-// evaluated last because it only reports state in V1 - a real
-// hardware limiter would cut/retard spark, which is out of scope
-// for V1 (software placeholder only).
+// cranking RPM is noisy and unreliable. TSS is applied early as it
+// represents engine load condition. Idle/rumble/backfire are applied
+// after the base curve because they are meant to modify (not replace)
+// a normally-running engine's timing. The limiter is evaluated last
+// because it only reports state in V2 (real hardware timing cut would
+// require a separate mechanism).
 // =============================================================
 
 #include <Arduino.h>
@@ -45,6 +47,7 @@ struct IgnitionResult {
     float        finalTiming;  // after all modifiers
     bool         starting;
     bool         idleActive;
+    bool         tssActive;    // TSS retard applied
     bool         rumbleActive;
     bool         backfireActive;
     LimiterState limiterState;
@@ -61,6 +64,7 @@ float calculateBaseTiming(uint16_t rpm, const CDIMap &map);
 
 float applyStartingTiming(float timing, uint16_t rpm, bool &starting);
 float applyIdleTiming(float timing, uint16_t rpm, const CDIMap &map, bool &idleActive);
+float applyTSSRetard(float timing, uint16_t rpm, const CDIMap &map, bool &tssActive);
 float applyRumbleIdle(float timing, uint16_t rpm, const CDIMap &map, bool &rumbleActive);
 float applyBackfire(float timing, uint16_t rpm, const CDIMap &map, bool &backfireActive);
 LimiterState applyRevLimiter(uint16_t rpm, const CDIMap &map);
