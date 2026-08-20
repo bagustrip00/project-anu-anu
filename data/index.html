@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDI Tuner V1</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Programmable CDI V1</h1>
+  <span id="systemState" class="badge">--</span>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="map">Ignition / Mapping</button>
+  <button class="tab-btn" data-tab="rumble">Rumble Idle</button>
+  <button class="tab-btn" data-tab="backfire">Backfire</button>
+  <button class="tab-btn" data-tab="limiter">Rev Limiter</button>
+  <button class="tab-btn" data-tab="starting">Starting</button>
+  <button class="tab-btn" data-tab="idle">Idle</button>
+  <button class="tab-btn" data-tab="simulator">RPM Simulator</button>
+  <button class="tab-btn" data-tab="settings">Settings</button>
+</nav>
+
+<main>
+
+<section id="tab-dashboard" class="tab-content active">
+  <div class="card-grid">
+    <div class="card"><div class="card-label">RPM</div><div id="dashRpm" class="card-value">--</div></div>
+    <div class="card"><div class="card-label">IGNITION</div><div id="dashTiming" class="card-value">--</div></div>
+    <div class="card"><div class="card-label">MAP</div><div id="dashMap" class="card-value">--</div></div>
+    <div class="card"><div class="card-label">RUMBLE IDLE</div><div id="dashRumble" class="card-value">--</div></div>
+    <div class="card"><div class="card-label">BACKFIRE</div><div id="dashBackfire" class="card-value">--</div></div>
+    <div class="card">
+      <div class="card-label">REV LIMIT</div>
+      <div id="dashLimiter" class="card-value">--</div>
+      <div id="dashLimiterRange" class="card-sub">--</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Live Ignition Detail</h2>
+    <table class="kv-table">
+      <tr><td>Base Timing</td><td id="detBase">--</td></tr>
+      <tr><td>Final Timing</td><td id="detFinal">--</td></tr>
+      <tr><td>Starting</td><td id="detStarting">--</td></tr>
+      <tr><td>Idle Active</td><td id="detIdle">--</td></tr>
+      <tr><td>RPM Source</td><td id="detSource">--</td></tr>
+      <tr><td>System</td><td id="detSystem">--</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="tab-map" class="tab-content">
+  <div class="panel">
+    <h2>Ignition Map / Mapping</h2>
+    <div class="row">
+      <button class="map-select-btn" data-map="0">MAP 1</button>
+      <button class="map-select-btn" data-map="1">MAP 2</button>
+      <button class="map-select-btn" data-map="2">MAP 3</button>
+    </div>
+    <p>Currently Active: <span id="mapActiveLabel">MAP 1</span></p>
+
+    <h3>Ignition Curve</h3>
+    <canvas id="curveCanvas" width="800" height="300" class="graph"></canvas>
+    <div class="row">
+      <button id="btnApplyMap">APPLY</button>
+      <button id="btnSaveConfig">SAVE</button>
+      <button id="btnResetConfig" class="danger">RESET</button>
+    </div>
+    <div class="table-scroll">
+      <table id="mapTable" class="edit-table">
+        <thead><tr><th>RPM</th><th>Timing (deg BTDC)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="tab-rumble" class="tab-content">
+  <div class="panel">
+    <h2>Rumble Idle</h2>
+    <div class="row">
+      <label><input type="checkbox" id="rumbleEnabled"> Enabled</label>
+    </div>
+    <label>Target RPM <input type="number" id="rumbleTarget" step="250"></label>
+    <label>Minimum RPM <input type="number" id="rumbleMin" step="250"></label>
+    <label>Maximum RPM <input type="number" id="rumbleMax" step="250"></label>
+    <label>Retard (deg) <input type="number" id="rumbleRetard" step="0.1"></label>
+    <button id="btnSaveRumble">APPLY</button>
+  </div>
+</section>
+
+<section id="tab-backfire" class="tab-content">
+  <div class="panel">
+    <h2>Backfire</h2>
+    <div class="row">
+      <label><input type="checkbox" id="backfireEnabled"> Enabled</label>
+    </div>
+    <label>Minimum RPM <input type="number" id="backfireMin" step="250"></label>
+    <label>Maximum RPM <input type="number" id="backfireMax" step="250"></label>
+    <label>Retard (deg) <input type="number" id="backfireRetard" step="0.1"></label>
+    <label>Duration (ms) <input type="number" id="backfireDuration" step="10"></label>
+    <label>Cooldown (ms) <input type="number" id="backfireCooldown" step="10"></label>
+    <button id="btnSaveBackfire">APPLY</button>
+  </div>
+</section>
+
+<section id="tab-limiter" class="tab-content">
+  <div class="panel">
+    <h2>Rev Limiter</h2>
+    <label>Minimum RPM <input type="number" id="limiterMin" step="250"></label>
+    <label>Maximum RPM <input type="number" id="limiterMax" step="250"></label>
+    <label>Soft Limit RPM <input type="number" id="softLimit" step="250"></label>
+    <label>Hard Limit RPM <input type="number" id="hardLimit" step="250"></label>
+    <button id="btnSaveLimiter">APPLY</button>
+  </div>
+</section>
+
+<section id="tab-starting" class="tab-content">
+  <div class="panel">
+    <h2>Starting Ignition</h2>
+    <label>Starting Advance (deg) <input type="number" id="startingAdvance" step="0.1"></label>
+    <label>Starting RPM Threshold <input type="number" id="startingThreshold" step="50"></label>
+    <button id="btnSaveStarting">APPLY</button>
+  </div>
+</section>
+
+<section id="tab-idle" class="tab-content">
+  <div class="panel">
+    <h2>Idle Ignition</h2>
+    <div class="row">
+      <label><input type="checkbox" id="idleEnabled"> Enabled</label>
+    </div>
+    <label>Idle RPM <input type="number" id="idleRpm" step="250"></label>
+    <label>Idle Timing (deg) <input type="number" id="idleTiming" step="0.1"></label>
+    <button id="btnSaveIdle">APPLY</button>
+  </div>
+</section>
+
+<section id="tab-simulator" class="tab-content">
+  <div class="panel">
+    <h2>RPM Simulator</h2>
+    <div class="row">
+      <label><input type="checkbox" id="simEnabled" checked> Simulator ON</label>
+    </div>
+    <label>Manual RPM <input type="number" id="simRpm" step="250"></label>
+    <div class="row">
+      <button id="btnRpmMinus">RPM -250</button>
+      <button id="btnRpmPlus">RPM +250</button>
+      <button id="btnSetRpm">SET RPM</button>
+    </div>
+    <h3>Auto Sweep</h3>
+    <label>Start RPM <input type="number" id="sweepStart" step="250" value="1000"></label>
+    <label>End RPM <input type="number" id="sweepEnd" step="250" value="10000"></label>
+    <label>Step <input type="number" id="sweepStep" step="250" value="250"></label>
+    <label>Interval (ms) <input type="number" id="sweepInterval" step="50" value="500"></label>
+    <div class="row">
+      <button id="btnSweepStart">START SWEEP</button>
+      <button id="btnSweepStop">STOP SWEEP</button>
+    </div>
+  </div>
+</section>
+
+<section id="tab-settings" class="tab-content">
+  <div class="panel">
+    <h2>Settings</h2>
+    <div class="row">
+      <button id="btnSave2">SAVE CONFIG</button>
+      <button id="btnLoad2">LOAD CONFIG</button>
+      <button id="btnReset2" class="danger">RESET DEFAULT</button>
+    </div>
+    <p class="hint">Config is stored on the Wemos itself (LittleFS). Nothing leaves the device.</p>
+  </div>
+</section>
+
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>
